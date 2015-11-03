@@ -35,7 +35,13 @@ static void tcp_ngg_init(struct sock *sk)
 static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	tp->snd_cwnd = min(tp->snd_cwnd << 2, 0xafffffff);
+	if (tp->snd_cwnd < 65530U) {
+	//	tcp_slow_start(tp, acked);
+		tp->snd_cwnd = tp->snd_cwnd << 1U;
+	} else {
+		tcp_cong_avoid_ai(tp, tp->snd_cwnd, acked);
+	}
+	//tp->snd_cwnd = min(tp->snd_cwnd++, 65530U);
 }
 
 /* ngg MD phase */
