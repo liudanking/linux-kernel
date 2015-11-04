@@ -63,7 +63,9 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct ngg *ngg = inet_csk_ca(sk);
+	static u32 cnt_log = 0;
 
+#if 0
 	if (ngg->ack_cnt > beta && ngg->srate > ngg->current_rate) {
 		tp->snd_cwnd = max(tp->snd_cwnd, tp->snd_cwnd + tp->snd_cwnd/alpha);
 		tp->snd_cwnd = min(tp->snd_cwnd, tp->snd_cwnd_clamp);
@@ -71,7 +73,10 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		ngg->ack_cnt = 0;
 		ngg->srate = 0;
 	}
-
+#else
+	if (tp->snd_cwnd < tp->snd_cwnd_clamp)
+		tp->snd_cwnd = tp->snd_cwnd << 1U;
+#endif
 	
 	// if (tp->snd_cwnd < NGG_MAX_CWND) {
 	// 	tp->snd_cwnd = tp->snd_cwnd << 1U;
@@ -79,14 +84,77 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	// 	tcp_cong_avoid_ai(tp, tp->snd_cwnd, acked);
 	// }
 
+	cnt_log++;
+	if (cnt_log % 500 == 0) {
+		printk("cong_avoid, cwnd:%u, srate:%uKB\n", tp->snd_cwnd, ngg->srate);
+	}
+
 
 }
 
 /* ngg MD phase */
 static u32 tcp_ngg_ssthresh(struct sock *sk)
 {
+	u32 cwnd;
 	struct tcp_sock *tp = tcp_sk(sk);
-	return max(tp->snd_cwnd--, 2U);
+	tp->snd_cwnd -= 1024;
+	cwnd = max(tp->snd_cwnd, 2U);
+
+	printk("ssthresh:%u\n", cwnd);
+	return cwnd;
+}
+
+static void tcp_ngg_set_state(struct sock *sk, u8 new_state)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	switch (new_state) {
+		case TCP_CA_Open:
+			printk("TCP_CA_Open, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case TCPF_CA_Disorder:
+			printk("TCPF_CA_Disorder, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case TCPF_CA_CWR:
+			printk("TCPF_CA_CWR, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case TCPF_CA_Recovery:
+			printk("TCPF_CA_Recovery, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case TCPF_CA_Loss:
+			printk("TCPF_CA_Loss, cwnd:%u\n", tp->snd_cwnd);
+			break;
+	}
+}
+
+static void tcp_ngg_cwnd_event(struct sock *sk, enum tcp_ca_event ev) 
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	switch (ev) {
+		case CA_EVENT_TX_START:
+			printk("CA_EVENT_TX_START, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case CA_EVENT_CWND_RESTART:
+			printk("CA_EVENT_CWND_RESTART, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case CA_EVENT_COMPLETE_CWR:
+			printk("CA_EVENT_COMPLETE_CWR, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case CA_EVENT_LOSS:
+			printk("CA_EVENT_LOSS, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case CA_EVENT_ECN_NO_CE:
+			printk("CA_EVENT_ECN_NO_CE, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case CA_EVENT_ECN_IS_CE:
+			printk("CA_EVENT_ECN_IS_CE, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case CA_EVENT_DELAYED_ACK:
+			printk("CA_EVENT_DELAYED_ACK, cwnd:%u\n", tp->snd_cwnd);
+			break;
+		case CA_EVENT_NON_DELAYED_ACK:
+			printk("CA_EVENT_NON_DELAYED_ACK, cwnd:%u\n", tp->snd_cwnd);
+			break;
+	}
 }
 
 static void tcp_ngg_pkts_acked(struct sock *sk, u32 num_acked, s32 rtt_us)
@@ -104,6 +172,8 @@ static struct tcp_congestion_ops tcp_ngg __read_mostly = {
 	.init 		= tcp_ngg_init,
 	.cong_avoid	= tcp_ngg_cong_avoid,
 	.ssthresh	= tcp_ngg_ssthresh,
+	.set_state 	= tcp_ngg_set_state,
+	.cwnd_event = tcp_ngg_cwnd_event,
 	.pkts_acked	= tcp_ngg_pkts_acked,
 
 	.owner		= THIS_MODULE,
