@@ -14,22 +14,23 @@
 
 static int alpha = 2;
 static int beta  = 10;
-static int gamma = 1;
+static int gamma = 8;
 
 module_param(alpha, int, 0644);
 MODULE_PARM_DESC(alpha, "increase/decrease rate parameter");
 module_param(beta, int, 0644);
-MODULE_PARM_DESC(beta, "number of ack to make a decision");
+MODULE_PARM_DESC(beta, "number of ack to make a change rate decision");
 module_param(gamma, int, 0644);
-MODULE_PARM_DESC(gamma, "limit on increase (scale by 2)");
+MODULE_PARM_DESC(gamma, "number of loss packet to make a MD decision");
 
 
 /* ngg variables */
 struct ngg {
 	u8 doing_ngg_now;	/* if true, do ngg for this rtt */
-	u32 current_rate; 	/* Bps */ 
-	u8 ack_cnt;
+	u32 current_rate; 	/* in Bps */ 
+	u8 ack_cnt;			/* ack count */
 	u32 srate;			/* smoothed rate according to ack_cnt */
+	u8 loss_cnt;		/* loss packet count */
 };
 
 /* There are several situations when we must "re-start" ngg:
@@ -55,6 +56,7 @@ static void tcp_ngg_init(struct sock *sk)
 	ngg->current_rate = 0;
 	ngg->ack_cnt = 0;
 	ngg->srate = 0;
+	ngg->loss_cnt = 0;
 
 
 }
@@ -74,8 +76,13 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		ngg->srate = 0;
 	}
 #else
-	if (tp->snd_cwnd < tp->snd_cwnd_clamp)
-		tp->snd_cwnd = tp->snd_cwnd << 1U;
+	if (tp->snd_cwnd < tp->snd_cwnd_clamp) {
+		if (ngg->loss_cnt <= gamma/2) {
+			tp->snd_cwnd = tp->snd_cwnd << 1U;
+		} else {
+			tp->snd_cwnd += acked;
+		}
+	}
 #endif
 	
 	// if (tp->snd_cwnd < NGG_MAX_CWND) {
@@ -95,13 +102,19 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 /* ngg MD phase */
 static u32 tcp_ngg_ssthresh(struct sock *sk)
 {
-	u32 cwnd;
 	struct tcp_sock *tp = tcp_sk(sk);
-	tp->snd_cwnd -= 1024;
-	cwnd = max(tp->snd_cwnd, 2U);
+	struct ngg *ngg = inet_csk_ca(sk);
+	if (ngg->loss_cnt > gamma) {
+		printk("cwnd MD\n");
+		ngg->loss_cnt = 0;
+		tp->snd_cwnd = max(tp->snd_cwnd / 2, 8192U);
+	} else {
+		tp->snd_cwnd -= 1024;
+		tp->snd_cwnd = max(tp->snd_cwnd, 8192U);
+	}
 
-	printk("ssthresh:%u\n", cwnd);
-	return cwnd;
+	printk("ssthresh:%u, loss_cnt:%u\n", tp->snd_cwnd, ngg->loss_cnt);
+	return tp->snd_cwnd;
 }
 
 static void tcp_ngg_set_state(struct sock *sk, u8 new_state)
@@ -129,6 +142,7 @@ static void tcp_ngg_set_state(struct sock *sk, u8 new_state)
 static void tcp_ngg_cwnd_event(struct sock *sk, enum tcp_ca_event ev) 
 {
 	struct tcp_sock *tp = tcp_sk(sk);
+	struct ngg *ngg = inet_csk_ca(sk);
 	switch (ev) {
 		case CA_EVENT_TX_START:
 			printk("CA_EVENT_TX_START, cwnd:%u\n", tp->snd_cwnd);
@@ -140,6 +154,7 @@ static void tcp_ngg_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 			printk("CA_EVENT_COMPLETE_CWR, cwnd:%u\n", tp->snd_cwnd);
 			break;
 		case CA_EVENT_LOSS:
+			ngg->loss_cnt++;
 			printk("CA_EVENT_LOSS, cwnd:%u\n", tp->snd_cwnd);
 			break;
 		case CA_EVENT_ECN_NO_CE:
@@ -161,11 +176,17 @@ static void tcp_ngg_pkts_acked(struct sock *sk, u32 num_acked, s32 rtt_us)
 {
 	// struct tcp_sock *tp = tcp_sk(sk);
 	struct ngg *ngg = inet_csk_ca(sk);
+	static u32 cnt_log = 0;
 
 	u32 r = num_acked * 1000000 / rtt_us;
 	if (r == 0)	return;
 	ngg->srate = (r + ngg->ack_cnt * ngg->srate) / (ngg->ack_cnt + 1);
 	ngg->ack_cnt++;
+
+	cnt_log++;
+	if (cnt_log % 500  == 0) {
+		printk("pkts_acked, num_acked:%u, rtt_us:%d, rate:%uKB\n", num_acked, rtt_us, r/1024);
+	}
 }
 
 static struct tcp_congestion_ops tcp_ngg __read_mostly = {
