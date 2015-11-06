@@ -26,7 +26,7 @@ showcc() {
 
 setcc() {
 	showcc
-	sysctl net.ipv4.tcp_congestion_control=$2
+	sysctl net.ipv4.tcp_congestion_control=$1
 }
 
 install() {
@@ -38,6 +38,10 @@ install() {
 	popd
 }
 
+showlog() {
+	tail -f /var/log/kernel.log
+}
+
 case "$1" in
 	run)
 		run
@@ -46,10 +50,13 @@ case "$1" in
 		showcc
 		;;
 	setcc)
-		setcc
+		setcc $2
 		;;
 	install)
 		install
+		;;
+	showlog)
+		showlog
 		;;
 	*)
 		run

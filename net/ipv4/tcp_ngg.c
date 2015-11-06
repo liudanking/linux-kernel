@@ -102,7 +102,7 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		}
 	}
 	// force to max 
-	tp->snd_cwnd = 16777216;
+	// tp->snd_cwnd = 16777216;
 #endif
 	
 	// if (tp->snd_cwnd < NGG_MAX_CWND) {
@@ -149,6 +149,8 @@ static void tcp_ngg_set_state(struct sock *sk, u8 new_state)
 			break;
 		case TCPF_CA_CWR:
 			ngg_printk("TCPF_CA_CWR, cwnd:%u\n", tp->snd_cwnd);
+			tp->snd_cwnd = NGG_MAX_CWND/2;
+			ngg_printk("TCPF_CA_CWR, cwnd-->:%u\n", tp->snd_cwnd);
 			break;
 		case TCPF_CA_Recovery:
 			ngg_printk("TCPF_CA_Recovery, cwnd:%u\n", tp->snd_cwnd);
