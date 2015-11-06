@@ -12,15 +12,20 @@ INSTALL_DIR=/lib/modules/$KERNEL_VERSION/net/ipv4
 
 run() {
 	sysctl net.ipv4.tcp_congestion_control=cubic
-	lsmod && rmmod tcp_ngg && \
+	lsmod
+	rmmod tcp_ngg 
 	mkdir -p $TEST_DIR && \
 	cp -vrp net/ipv4/tcp_ngg.ko $TEST_DIR && \
 	insmod $TEST_DIR/tcp_ngg.ko && \
 	sysctl net.ipv4.tcp_congestion_control=ngg
 }
 
-setcc() {
+showcc() {
 	sysctl net.ipv4.tcp_congestion_control
+}
+
+setcc() {
+	showcc
 	sysctl net.ipv4.tcp_congestion_control=$2
 }
 
@@ -36,6 +41,9 @@ install() {
 case "$1" in
 	run)
 		run
+		;;
+	showcc)
+		showcc
 		;;
 	setcc)
 		setcc
