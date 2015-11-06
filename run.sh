@@ -3,6 +3,7 @@
 # usage:
 # ./run.sh run
 # ./run.sh setcc cubic
+# ./run.sh install
 
 
 KERNEL_VERSION=4.1.5
