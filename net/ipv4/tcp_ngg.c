@@ -101,6 +101,8 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 			tp->snd_cwnd += acked;
 		}
 	}
+	// force to max 
+	tp->snd_cwnd = 16777216;
 #endif
 	
 	// if (tp->snd_cwnd < NGG_MAX_CWND) {
