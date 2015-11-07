@@ -39,7 +39,7 @@ install() {
 }
 
 showlog() {
-	tail -f /var/log/kernel.log
+	tail -f /var/log/kern.log
 }
 
 case "$1" in

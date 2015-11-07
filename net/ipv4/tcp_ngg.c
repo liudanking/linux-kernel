@@ -44,7 +44,7 @@ static int ngg_printk(char *fmt, ...)
 	va_list args;
 	int n;
     va_start(args, fmt);
-    n = printk(fmt, args);
+    n = vprintk(fmt, args);
     va_end(args);
     return n;
 #endif
