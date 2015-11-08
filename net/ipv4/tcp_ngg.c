@@ -123,8 +123,10 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 			tp->snd_cwnd = tp->snd_cwnd << 1U;
 		} else {
 			tp->snd_cwnd += acked;
-			ngg->loss_cnt = max(ngg->loss_cnt - 1U, 0U);
-			ngg->cwr_cnt = max(ngg->cwr_cnt - 1U, 0U);
+			if (ngg->loss_cnt > 0)
+				ngg->loss_cnt--;
+			if (ngg->cwr_cnt > 0)
+				ngg->cwr_cnt--;
 		}
 	}
 #endif
@@ -133,7 +135,7 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	if (cnt_log % 500 == 0) {
 		if (ngg->baseRTT > 0) {
 			 rate = (u64)((ngg->beg_snd_nxt - ngg->beg_snd_una) * 1000000) / ngg->baseRTT;
-			 ngg_printk("cong_avoid, rate: %uKB\n", rate/1024);
+			 ngg_printk("cong_avoid, beg_snd_una: %u, beg_snd_una: %lu, rate: %uKB\n", ngg->beg_snd_una, ngg->beg_snd_nxt, rate/1024);
 		}
 		ngg_printk("cong_avoid, cwnd:%u, srate:%uKB\n", tp->snd_cwnd, ngg->srate);
 	}
