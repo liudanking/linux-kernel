@@ -38,6 +38,14 @@ struct ngg {
 	// for statistics
 	u32 loss_total;
 	u32 cwr_cnt;
+	// copy from vegas
+	u32	beg_snd_nxt;	/* right edge during last RTT */
+	u32	beg_snd_una;	/* left edge  during last RTT */
+	u32	beg_snd_cwnd;	/* saves the size of the cwnd */
+	u8	doing_vegas_now;/* if true, do vegas for this RTT */
+	u16	cntRTT;		/* # of RTTs measured within last RTT */
+	u32	minRTT;		/* min of RTTs measured within last RTT (in usec) */
+	u32	baseRTT;	/* the min of all Vegas RTT measurements seen (in usec) */
 };
 
 
@@ -98,6 +106,7 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct ngg *ngg = inet_csk_ca(sk);
+	u64 rate;
 	static u32 cnt_log = 0;
 
 #if 0
@@ -110,26 +119,29 @@ static void tcp_ngg_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 	}
 #else
 	if (tp->snd_cwnd < tp->snd_cwnd_clamp) {
-		if (ngg->loss_cnt <= gamma/2) {
+		if (ngg->loss_cnt <= gamma/2 && ngg->cwr_cnt <= gamma) {
 			tp->snd_cwnd = tp->snd_cwnd << 1U;
 		} else {
 			tp->snd_cwnd += acked;
+			ngg->loss_cnt = max(ngg->loss_cnt - 1U, 0U);
+			ngg->cwr_cnt = max(ngg->cwr_cnt - 1U, 0U);
 		}
 	}
-	// force to max 
-	// tp->snd_cwnd = 16777216;
 #endif
-	
-	// if (tp->snd_cwnd < NGG_MAX_CWND) {
-	// 	tp->snd_cwnd = tp->snd_cwnd << 1U;
-	// } else {
-	// 	tcp_cong_avoid_ai(tp, tp->snd_cwnd, acked);
-	// }
 
 	cnt_log++;
 	if (cnt_log % 500 == 0) {
+		if (ngg->baseRTT > 0) {
+			 rate = (u64)((ngg->beg_snd_nxt - ngg->beg_snd_una) * 1000000) / ngg->baseRTT;
+			 ngg_printk("cong_avoid, rate: %uKB\n", rate/1024);
+		}
 		ngg_printk("cong_avoid, cwnd:%u, srate:%uKB\n", tp->snd_cwnd, ngg->srate);
 	}
+
+	// save current state
+	ngg->beg_snd_nxt = tp->snd_nxt;
+	ngg->beg_snd_una = tp->snd_una;
+	ngg->beg_snd_cwnd = tp->snd_cwnd;
 
 
 }
@@ -139,16 +151,26 @@ static u32 tcp_ngg_ssthresh(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct ngg *ngg = inet_csk_ca(sk);
-	if (ngg->loss_cnt > gamma) {
-		ngg_printk("cwnd MD\n");
-		ngg->loss_cnt = 0;
-		tp->snd_cwnd = max(tp->snd_cwnd / 2, 8192U);
-	} else {
+	do {
+		if (ngg->loss_cnt > gamma) {
+			ngg_printk("cwnd MD by loss_cnt\n");
+			ngg->loss_cnt = 0;
+			tp->snd_cwnd = max(tp->snd_cwnd / 2, 8192U);
+			break;
+		}
+		if (ngg->cwr_cnt > 2 * gamma) {
+			ngg_printk("cwnd MD by cwr_cnt\n");
+			ngg->cwr_cnt = 0;
+			tp->snd_cwnd = max(tp->snd_cwnd / 2, 8192U);
+			break;	
+		}
+		
 		tp->snd_cwnd -= 1024;
 		tp->snd_cwnd = max(tp->snd_cwnd, 8192U);
-	}
 
-	ngg_printk("ssthresh:%u, loss_cnt:%u\n", tp->snd_cwnd, ngg->loss_cnt);
+	} while(1);
+
+	ngg_printk("ssthresh cwnd:%u, loss_cnt:%u, cwr_cnt:%u\n", tp->snd_cwnd, ngg->loss_cnt, ngg->cwr_cnt);
 	return tp->snd_cwnd;
 }
 
@@ -188,9 +210,13 @@ static void tcp_ngg_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 			ngg_printk("CA_EVENT_CWND_RESTART, cwnd:%u\n", tp->snd_cwnd);
 			break;
 		case CA_EVENT_COMPLETE_CWR:
+			/*
+			 * This event means local congestion window may by overflow, then cut window by half.
+			 */
+			ngg->cwr_cnt++;
 			ngg_printk("CA_EVENT_COMPLETE_CWR, cwnd:%u\n", tp->snd_cwnd);
-			tp->snd_cwnd = max(tp->snd_cwnd >> 1U, 65535U);
-			ngg_printk("CA_EVENT_COMPLETE_CWR, cwnd-->:%u\n", tp->snd_cwnd);
+			// tp->snd_cwnd = max(tp->snd_cwnd >> 1U, 65535U);
+			// ngg_printk("CA_EVENT_COMPLETE_CWR, cwnd-->:%u\n", tp->snd_cwnd);
 			break;
 		case CA_EVENT_LOSS:
 			ngg->loss_cnt++;
@@ -215,9 +241,14 @@ static void tcp_ngg_pkts_acked(struct sock *sk, u32 num_acked, s32 rtt_us)
 {
 	// struct tcp_sock *tp = tcp_sk(sk);
 	struct ngg *ngg = inet_csk_ca(sk);
+	u32 r;
 	static u32 cnt_log = 0;
 
-	u32 r = num_acked * 1000000 / rtt_us;
+	if (rtt_us > 0 ) {
+		ngg->baseRTT = rtt_us;
+	}
+
+	r = num_acked * 1000000 / rtt_us;
 	if (r == 0)	return;
 	ngg->srate = (r + ngg->ack_cnt * ngg->srate) / (ngg->ack_cnt + 1);
 	ngg->ack_cnt++;
