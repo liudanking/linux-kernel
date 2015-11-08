@@ -170,6 +170,7 @@ static u32 tcp_ngg_ssthresh(struct sock *sk)
 		tp->snd_cwnd -= 1024;
 		tp->snd_cwnd = max(tp->snd_cwnd, 8192U);
 
+		break;
 	} while(1);
 
 	ngg_printk("ssthresh cwnd:%u, loss_cnt:%u, cwr_cnt:%u\n", tp->snd_cwnd, ngg->loss_cnt, ngg->cwr_cnt);
