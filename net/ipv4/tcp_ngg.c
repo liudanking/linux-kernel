@@ -35,6 +35,9 @@ struct ngg {
 	u8 ack_cnt;			/* ack count */
 	u32 srate;			/* smoothed rate according to ack_cnt */
 	u8 loss_cnt;		/* loss packet count */
+	// for statistics
+	u32 loss_total;
+	u32 cwr_cnt;
 };
 
 
@@ -76,6 +79,18 @@ static void tcp_ngg_init(struct sock *sk)
 	ngg->srate = 0;
 	ngg->loss_cnt = 0;
 
+	ngg->loss_total = 0;
+	ngg->cwr_cnt = 0;
+
+	ngg_printk("\n===== connection start =====\n");
+}
+
+
+static void tcp_ngg_release(struct sock *sk)
+{
+	struct ngg *ngg = inet_csk_ca(sk);
+	ngg_printk("===== connection complete!=====\n");
+	ngg_printk("loss_total:%u, cwr_cnt:%u\n\n", ngg->loss_total, ngg->cwr_cnt);
 
 }
 
@@ -174,6 +189,8 @@ static void tcp_ngg_cwnd_event(struct sock *sk, enum tcp_ca_event ev)
 			break;
 		case CA_EVENT_COMPLETE_CWR:
 			ngg_printk("CA_EVENT_COMPLETE_CWR, cwnd:%u\n", tp->snd_cwnd);
+			tp->snd_cwnd = max(tp->snd_cwnd >> 1U, 65535U);
+			ngg_printk("CA_EVENT_COMPLETE_CWR, cwnd-->:%u\n", tp->snd_cwnd);
 			break;
 		case CA_EVENT_LOSS:
 			ngg->loss_cnt++;
@@ -213,6 +230,7 @@ static void tcp_ngg_pkts_acked(struct sock *sk, u32 num_acked, s32 rtt_us)
 
 static struct tcp_congestion_ops tcp_ngg __read_mostly = {
 	.init 		= tcp_ngg_init,
+	.release 	= tcp_ngg_release,
 	.cong_avoid	= tcp_ngg_cong_avoid,
 	.ssthresh	= tcp_ngg_ssthresh,
 	.set_state 	= tcp_ngg_set_state,
