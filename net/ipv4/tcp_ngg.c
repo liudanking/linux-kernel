@@ -247,12 +247,14 @@ static void tcp_ngg_pkts_acked(struct sock *sk, u32 num_acked, s32 rtt_us)
 	u32 r;
 	static u32 cnt_log = 0;
 
-	if (rtt_us > 0 ) {
+	if (rtt_us <= 0 ) {
+		return;
+	} else {
 		ngg->baseRTT = rtt_us;
+		r = num_acked * 1000000 / rtt_us;
+		if (r == 0)	return;
 	}
 
-	r = num_acked * 1000000 / rtt_us;
-	if (r == 0)	return;
 	ngg->srate = (r + ngg->ack_cnt * ngg->srate) / (ngg->ack_cnt + 1);
 	ngg->ack_cnt++;
 
