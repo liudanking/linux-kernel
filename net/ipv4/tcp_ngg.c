@@ -13,7 +13,7 @@
 
 
 
-#define NGG_DBG 1
+#define NGG_DBG 0
 #define NGG_MAX_CWND 6553500U
 
 static int alpha = 2;
